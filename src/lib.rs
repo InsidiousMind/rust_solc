@@ -6,7 +6,7 @@ extern crate lazy_static;
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::{Command, Output, Stdio};
+use std::process::{Child, Command, Output, Stdio};
 
 extern crate regex;
 use regex::Regex;
@@ -221,7 +221,7 @@ pub fn rename_solcjs_outputs<A: AsRef<Path>, B: AsRef<Path>>(
 
 /// at the time of writing this is broken for `solcjs`
 /// due to issue https://github.com/ethereum/solc-js/issues/126
-pub fn standard_json(input_json: &str) -> error::Result<String> {
+pub fn standard_json(input_json: &str, allowed_paths: Option<Vec<&Path>>) -> error::Result<String> {
     let is_solc_available = is_solc_available();
 
     if !is_solc_available && !is_solcjs_available() {
@@ -230,29 +230,49 @@ pub fn standard_json(input_json: &str) -> error::Result<String> {
 
     let command_name = if is_solc_available { "solc" } else { "solcjs" };
 
-    common_standard_json(command_name, input_json)
+    common_standard_json(command_name, input_json, allowed_paths)
 }
 
-fn common_standard_json(command_name: &str, input_json: &str) -> error::Result<String> {
-    let full_command = format!("{} --standard-json", command_name);
+fn common_standard_json(command_name: &str, input_json: &str, paths: Option<Vec<&Path>>) -> error::Result<String> {
+    
+    if let Some(whitelisted_paths) = paths {
+        let paths = whitelisted_paths.iter()
+            .filter_map(|p| p.to_str())
+            .fold(String::from(""), |acc, p| format!("{}{},", acc, p));
+        let full_command = format!("{} --standard-json --allowed-paths {:?}", command_name, paths);
+        let process = Command::new(command_name)
+            .arg("--standard-json")
+            .arg("--allow-paths")
+            .arg(&paths)
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .chain_err(|| format!("failed to spawn process `{}`", &full_command))?;
+        process_command(process, &full_command, input_json)
+    } else {
+        let full_command = format!("{} --standard-json", command_name);
+        let process = Command::new(command_name)
+            .arg("--standard-json")
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .spawn()
+            .chain_err(|| format!("failed to spawn process `{}`", &full_command))?;
+        process_command(process, &full_command, input_json)
+    }
+}
 
-    let mut process = Command::new(command_name)
-        .arg("--standard-json")
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .spawn()
-        .chain_err(|| format!("failed to spawn process `{}`", &full_command))?;
-
+fn process_command(mut process: Child, full_command: &str, input_json: &str) -> error::Result<String> {
+    
     {
         let stdin = process
             .stdin
             .as_mut()
-            .chain_err(|| format!("failed to open stdin for process `{}`", &full_command))?;
+            .chain_err(|| format!("failed to open stdin for process `{}`", full_command))?;
 
         stdin.write_all(input_json.as_bytes()).chain_err(|| {
             format!(
                 "failed to write input json to stdin for process `{}`",
-                &full_command
+                full_command
             )
         })?;
     }
@@ -260,13 +280,13 @@ fn common_standard_json(command_name: &str, input_json: &str) -> error::Result<S
     let output = process.wait_with_output().chain_err(|| {
         format!(
             "failed to read output json from stdout for process `{}`",
-            &full_command
+            full_command
         )
     })?;
 
     if !output.status.success() {
         return Err(
-            error::ErrorKind::ExitStatusNotSuccess(full_command.clone(), output.status).into(),
+            error::ErrorKind::ExitStatusNotSuccess(full_command.to_string(), output.status).into(),
         );
     }
 
@@ -279,3 +299,5 @@ fn common_standard_json(command_name: &str, input_json: &str) -> error::Result<S
 
     Ok(output_json)
 }
+
+
