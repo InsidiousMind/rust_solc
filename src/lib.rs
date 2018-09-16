@@ -233,13 +233,20 @@ pub fn standard_json(input_json: &str, allowed_paths: Option<Vec<&Path>>) -> err
     common_standard_json(command_name, input_json, allowed_paths)
 }
 
-fn common_standard_json(command_name: &str, input_json: &str, paths: Option<Vec<&Path>>) -> error::Result<String> {
-    
+fn common_standard_json(
+    command_name: &str,
+    input_json: &str,
+    paths: Option<Vec<&Path>>,
+) -> error::Result<String> {
     if let Some(whitelisted_paths) = paths {
-        let paths = whitelisted_paths.iter()
+        let paths = whitelisted_paths
+            .iter()
             .filter_map(|p| p.to_str())
             .fold(String::from(""), |acc, p| format!("{}{},", acc, p));
-        let full_command = format!("{} --standard-json --allowed-paths {:?}", command_name, paths);
+        let full_command = format!(
+            "{} --standard-json --allowed-paths {:?}",
+            command_name, paths
+        );
         let process = Command::new(command_name)
             .arg("--standard-json")
             .arg("--allow-paths")
@@ -261,8 +268,11 @@ fn common_standard_json(command_name: &str, input_json: &str, paths: Option<Vec<
     }
 }
 
-fn process_command(mut process: Child, full_command: &str, input_json: &str) -> error::Result<String> {
-    
+fn process_command(
+    mut process: Child,
+    full_command: &str,
+    input_json: &str,
+) -> error::Result<String> {
     {
         let stdin = process
             .stdin
@@ -299,5 +309,3 @@ fn process_command(mut process: Child, full_command: &str, input_json: &str) -> 
 
     Ok(output_json)
 }
-
-
